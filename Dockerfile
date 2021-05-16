@@ -1,12 +1,13 @@
 FROM node:lts-alpine
 
 LABEL \
-  org.label-schema.schema-version="1.0" \
-  org.label-schema.name="pull" \
-  org.label-schema.description="Keep your forks up-to-date via automated PRs" \
-  org.label-schema.url="https://github.com/wei/pull" \
-  org.label-schema.usage="https://github.com/wei/pull#readme" \
-  org.label-schema.vcs-url="https://github.com/wei/pull" \
+  org.opencontainers.image.title="pull" \
+  org.opencontainers.image.description="Keep your forks up-to-date via automated PRs" \
+  org.opencontainers.image.url="https://github.com/wei/pull" \
+  org.opencontainers.image.documentation="https://github.com/wei/pull#readme" \
+  org.opencontainers.image.source="https://github.com/wei/pull" \
+  org.opencontainers.image.licenses="MIT" \
+  org.opencontainers.image.authors="Wei He <docker@weispot.com>" \
   maintainer="Wei He <docker@weispot.com>"
 
 ENV \
@@ -32,8 +33,11 @@ ENV \
   LOG_LEVEL=info \
   WEBHOOK_PATH=/webhook \
   PULL_INTERVAL=3600 \
+  JOB_TIMEOUT=60 \
   MAX_CONCURRENT=10 \
+  MAX_IN_QUEUE=1000 \
   CONFIG_FILENAME=pull.yml \
+  DEFAULT_MERGE_METHOD=hardreset \
   DISABLE_DELAY= \
   DISABLE_STATS= \
   _=
@@ -55,5 +59,5 @@ CMD ["npm", "start"]
 ARG VCS_REF
 ARG BUILD_DATE
 LABEL \
-	org.label-schema.vcs-ref=$VCS_REF \
-  org.label-schema.build-date=$BUILD_DATE
+	org.opencontainers.image.ref.name=$VCS_REF \
+  org.opencontainers.image.created=$BUILD_DATE

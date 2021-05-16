@@ -25,7 +25,8 @@ beforeEach(() => {
     },
     issues: {
       update: jest.fn(),
-      listForRepo: jest.fn()
+      listForRepo: jest.fn(),
+      createLabel: jest.fn()
     },
     git: {
       updateRef: jest.fn()
@@ -47,24 +48,28 @@ const goodConfig = {
       upstream: 'upstream:master',
       mergeMethod: 'none',
       assignees: [],
-      reviewers: []
+      reviewers: [],
+      conflictReviewers: []
     },
     {
       base: 'feature/new-1',
       upstream: 'upstream:dev',
       mergeMethod: 'rebase',
       assignees: ['tom'],
-      reviewers: ['jerry']
+      reviewers: ['jerry', 'org/team-1'],
+      conflictReviewers: ['spike']
     },
     {
       base: 'hotfix/bug-1',
       upstream: 'upstream:dev',
       mergeMethod: 'hardreset',
       assignees: ['wei'],
-      reviewers: ['wei']
+      reviewers: ['wei'],
+      conflictReviewers: ['saurabh702']
     }
   ],
-  label: 'pull'
+  label: 'pull',
+  conflictLabel: 'merge-conflict'
 }
 const getPull = () => new Pull(github, { owner: 'wei', repo: 'fork', logger: app.log }, goodConfig)
 
@@ -105,13 +110,13 @@ describe('pull - routineCheck', () => {
     const pull = getPull()
     await pull.routineCheck()
     expect(github.repos.compareCommits).nthCalledWith(1, {
-      owner: 'wei', repo: 'fork', base: 'master', head: 'upstream:master'
+      owner: 'wei', repo: 'fork', base: 'master', head: 'upstream%3Amaster'
     })
     expect(github.repos.compareCommits).nthCalledWith(3, {
-      owner: 'wei', repo: 'fork', base: 'hotfix/bug-1', head: 'upstream:dev'
+      owner: 'wei', repo: 'fork', base: 'hotfix%2Fbug-1', head: 'upstream%3Adev'
     })
     expect(github.repos.compareCommits).nthCalledWith(2, {
-      owner: 'wei', repo: 'fork', base: 'feature/new-1', head: 'upstream:dev'
+      owner: 'wei', repo: 'fork', base: 'feature%2Fnew-1', head: 'upstream%3Adev'
     })
     expect(github.issues.listForRepo).not.toHaveBeenCalled()
     expect(github.pulls.create).not.toHaveBeenCalled()
@@ -226,7 +231,7 @@ describe('pull - routineCheck', () => {
     const pull = getPull()
     await pull.routineCheck()
     expect(github.repos.compareCommits).nthCalledWith(1, {
-      owner: 'wei', repo: 'fork', base: 'master', head: 'upstream:master'
+      owner: 'wei', repo: 'fork', base: 'master', head: 'upstream%3Amaster'
     })
     expect(github.issues.listForRepo).toHaveBeenCalled()
     expect(github.pulls.get).nthCalledWith(1, { owner: 'wei', repo: 'fork', pull_number: 13 })
@@ -234,14 +239,14 @@ describe('pull - routineCheck', () => {
     expect(github.pulls.merge).not.toHaveBeenCalledWith()
 
     expect(github.repos.compareCommits).nthCalledWith(2, {
-      owner: 'wei', repo: 'fork', base: 'feature/new-1', head: 'upstream:dev'
+      owner: 'wei', repo: 'fork', base: 'feature%2Fnew-1', head: 'upstream%3Adev'
     })
     expect(github.issues.listForRepo).toHaveBeenCalled()
     expect(github.pulls.get).nthCalledWith(3, { owner: 'wei', repo: 'fork', pull_number: 13 })
     expect(github.pulls.merge).toHaveBeenCalledWith({ owner: 'wei', repo: 'fork', pull_number: 13, merge_method: 'rebase' })
 
     expect(github.repos.compareCommits).nthCalledWith(3, {
-      owner: 'wei', repo: 'fork', base: 'hotfix/bug-1', head: 'upstream:dev'
+      owner: 'wei', repo: 'fork', base: 'hotfix%2Fbug-1', head: 'upstream%3Adev'
     })
     expect(github.issues.listForRepo).toHaveBeenCalled()
     expect(github.pulls.get).nthCalledWith(4, { owner: 'wei', repo: 'fork', pull_number: 13 })
@@ -280,13 +285,13 @@ describe('pull - routineCheck', () => {
     const pull = getPull()
     await pull.routineCheck()
     expect(github.repos.compareCommits).nthCalledWith(1, {
-      owner: 'wei', repo: 'fork', base: 'master', head: 'upstream:master'
+      owner: 'wei', repo: 'fork', base: 'master', head: 'upstream%3Amaster'
     })
     expect(github.repos.compareCommits).nthCalledWith(2, {
-      owner: 'wei', repo: 'fork', base: 'feature/new-1', head: 'upstream:dev'
+      owner: 'wei', repo: 'fork', base: 'feature%2Fnew-1', head: 'upstream%3Adev'
     })
     expect(github.repos.compareCommits).nthCalledWith(3, {
-      owner: 'wei', repo: 'fork', base: 'hotfix/bug-1', head: 'upstream:dev'
+      owner: 'wei', repo: 'fork', base: 'hotfix%2Fbug-1', head: 'upstream%3Adev'
     })
     expect(github.issues.listForRepo).toHaveBeenCalledTimes(3)
     expect(github.pulls.create).toHaveBeenCalledTimes(2)
@@ -302,7 +307,7 @@ describe('pull - routineCheck', () => {
     })
     expect(github.pulls.createReviewRequest).toHaveBeenCalledTimes(1)
     expect(github.pulls.createReviewRequest).nthCalledWith(1, {
-      owner: 'wei', repo: 'fork', pull_number: 12, reviewers: ['jerry']
+      owner: 'wei', repo: 'fork', pull_number: 12, reviewers: ['jerry'], team_reviewers: ['team-1']
     })
   })
 })
@@ -389,6 +394,29 @@ describe('pull - checkAutoMerge', () => {
     expect(github.git.updateRef).not.toHaveBeenCalled()
   })
 
+  test('should assign conflict reviewer if mergeablity is false', async () => {
+    github.pulls.get.mockResolvedValueOnce({ data: { mergeable: false } })
+
+    const pull = getPull()
+    await pull.checkAutoMerge({
+      number: 12,
+      base: { ref: 'feature/new-1' },
+      head: { ref: 'dev', label: 'upstream:dev', sha: 'sha1-placeholder' },
+      state: 'open',
+      user: { login: 'pull[bot]' },
+      mergeable: false
+    }, { conflictReviewers: ['wei', 'saurabh702'] })
+
+    try {
+      expect(github.issues.getLabel).toHaveBeenCalledTimes(1)
+    } catch (e) {
+      expect(pull.addLabel(pull.config.conflictLabel, 'ff0000', 'Resolve conflicts manually')).resolves.not.toBeNull()
+    }
+
+    expect(github.issues.update).toHaveBeenCalledTimes(1)
+    expect(pull.addReviewers(12, ['wei', 'saurabh702'])).resolves.not.toBeNull()
+  })
+
   test('should not merge if mergeable_status is dirty', async () => {
     github.pulls.get.mockResolvedValueOnce({ data: { mergeable: null, rebaseable: false, mergeable_state: 'unknown' } })
     setTimeout(() => {
@@ -407,6 +435,26 @@ describe('pull - checkAutoMerge', () => {
     }, { isMergeableMaxRetries: 2 })
     expect(github.pulls.get).toHaveBeenCalledTimes(2)
     expect(github.pulls.get).toHaveBeenCalledWith({ owner: 'wei', repo: 'fork', pull_number: 12 })
+    expect(github.git.updateRef).not.toHaveBeenCalled()
+  })
+
+  test('should merge if mergeable_status is unstable and mergeUnstable flag is set to true', async () => {
+    github.pulls.get.mockResolvedValueOnce({ data: { mergeable: true, rebaseable: false, mergeable_state: 'clean' } })
+
+    const config = { version: '1', rules: [{ base: 'dev', upstream: 'master', mergeMethod: 'merge', mergeUnstable: true }] }
+    const pull = new Pull(github, { owner: 'wei', repo: 'fork', logger: app.log }, config)
+    await pull.checkAutoMerge({
+      number: 12,
+      base: { ref: 'dev' },
+      head: { ref: 'master', label: 'wei:master', sha: 'sha1-placeholder' },
+      state: 'open',
+      user: { login: 'pull[bot]' },
+      mergeable: true,
+      rebaseable: false,
+      mergeable_state: 'unstable'
+    })
+    expect(github.pulls.get).toHaveBeenCalledTimes(0)
+    expect(github.pulls.merge).toHaveBeenCalledWith({ owner: 'wei', repo: 'fork', pull_number: 12, merge_method: 'merge' })
     expect(github.git.updateRef).not.toHaveBeenCalled()
   })
 
@@ -527,6 +575,7 @@ describe('pull - misc', () => {
     await expect(pull.addReviewers()).resolves.toBeNull()
     await expect(pull.addReviewers(12)).resolves.toBeNull()
     await expect(pull.addReviewers(12, [])).resolves.toBeNull()
+    await expect(pull.addLabel()).resolves.toBeNull()
     await expect(pull.mergePR()).resolves.toBeNull()
     await expect(pull.mergePR(12)).resolves.not.toBeNull()
     await expect(pull.hardResetCommit()).resolves.toBeNull()
@@ -545,7 +594,8 @@ describe('pull - misc', () => {
           upstream: 'upstream:dev',
           autoMerge: true,
           assignees: ['tom'],
-          reviewers: ['jerry']
+          reviewers: ['jerry'],
+          conflictReviewers: ['spike']
         },
         {
           base: 'hotfix/bug-1',
@@ -553,10 +603,12 @@ describe('pull - misc', () => {
           autoMerge: true,
           autoMergeHardReset: true,
           assignees: ['wei'],
-          reviewers: ['wei']
+          reviewers: ['wei'],
+          conflictReviewers: ['saurabh702']
         }
       ],
-      label: 'pull'
+      label: 'pull',
+      conflictLabel: 'merge-conflict'
     })
 
     expect(pull.config.rules[0].mergeMethod).toBe('merge')
